@@ -215,20 +215,165 @@ def detect_red_flags(
         )
 
     # -------------------------------------------------
+    # EXTREMELY HIGH FEVER / TEMPERATURE
+    # -------------------------------------------------
+
+    temperature_celsius = None
+
+    # The fever interview pathway stores the patient's
+    # highest measured temperature in the "severity"
+    # field.
+    #
+    # Example:
+    #
+    # answers = {
+    #     "onset": "...",
+    #     "duration": "...",
+    #     "severity": 41
+    # }
+    #
+    # IMPORTANT:
+    # "severity" is only treated as temperature when
+    # the chief complaint is actually fever.
+    #
+    # This prevents a headache severity of 10 or another
+    # symptom severity score from being interpreted as
+    # 10°C.
+
+    temperature_keys = [
+        "temperature",
+        "temp",
+        "body_temperature",
+        "temperature_celsius",
+        "temperature_c",
+    ]
+
+    # First check for a dedicated temperature field.
+    for key in temperature_keys:
+
+        if key in answers:
+
+            try:
+                value = answers[key]
+
+                if value is None or str(value).strip() == "":
+                    continue
+
+                temperature_celsius = float(value)
+
+                break
+
+            except (TypeError, ValueError):
+                continue
+
+    # Fever complaint indicators.
+    fever_indicators = [
+        "fever",
+        "high temperature",
+        "बुखार",
+        "ताप",
+        "ताप आला",
+        "জ্বর",
+        "காய்ச்சல்",
+        "జ్వరం",
+    ]
+
+    is_fever_complaint = any(
+        indicator in complaint_text
+        for indicator in fever_indicators
+    )
+
+    # In the actual MediKiosk fever pathway, the
+    # temperature question uses field="severity".
+    #
+    # Only use it when this is a fever complaint.
+    if (
+        temperature_celsius is None
+        and is_fever_complaint
+        and "severity" in answers
+    ):
+
+        try:
+            value = answers["severity"]
+
+            if value is not None and str(value).strip() != "":
+                temperature_celsius = float(value)
+
+        except (TypeError, ValueError):
+            pass
+
+    # -------------------------------------------------
+    # LIFE-THREATENING FEVER THRESHOLD
+    # -------------------------------------------------
+
+    # Temperature strictly ABOVE 40°C is classified
+    # as life-threatening.
+    #
+    # 40.0°C  -> not triggered by this rule
+    # 40.1°C  -> life-threatening
+    # 41.0°C  -> life-threatening
+    # 50.0°C  -> life-threatening
+
+    if (
+        temperature_celsius is not None
+        and temperature_celsius > 40.0
+    ):
+        flags.append(
+            {
+                "type": "extreme_fever",
+                "severity": "life_threatening",
+                "message": (
+                    f"Extremely high body temperature "
+                    f"({temperature_celsius:.1f}°C) was reported."
+                ),
+            }
+        )
+
+    # -------------------------------------------------
     # FINAL RESULT
     # -------------------------------------------------
 
     if flags:
-        return {
-            "has_red_flags": True,
-            "urgency": "urgent",
-            "message": (
+
+        # If ANY red flag is life-threatening,
+        # the overall assessment must be
+        # life-threatening.
+
+        has_life_threatening = any(
+            flag.get("severity") == "life_threatening"
+            for flag in flags
+        )
+
+        if has_life_threatening:
+
+            urgency = "life_threatening"
+
+            message = (
+                "A potentially life-threatening warning "
+                "sign was detected. Please alert a "
+                "healthcare professional immediately."
+            )
+
+        else:
+
+            urgency = "urgent"
+
+            message = (
                 "Please alert a healthcare professional "
                 "immediately. Some of your responses may "
                 "require urgent clinical attention."
-            ),
+            )
+
+        return {
+            "has_red_flags": True,
+            "urgency": urgency,
+            "message": message,
             "flags": flags,
         }
+
+    # -------------------------------------------------
+    # NO RED FLAGS
+    # -------------------------------------------------
 
     return {
         "has_red_flags": False,

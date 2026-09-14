@@ -83,7 +83,7 @@ QUESTION_PATHWAYS = {
             },
             {
                 "field": "severity",
-                "question": "Do you know the highest temperature you measured?",
+                "question": "Do you know the highest temperature you measured (in °C)?",
                 "category": "HPI",
             },
             {

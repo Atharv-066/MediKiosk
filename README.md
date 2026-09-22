@@ -1,2 +1,2 @@
-# MediKiosk
-A Patient Case Taking Software.
+# Medikiosk
+A Patient Case History taking software

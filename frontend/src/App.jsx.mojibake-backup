@@ -1,0 +1,1669 @@
+﻿import { useEffect, useState } from "react";
+import "./App.css";
+
+import PatientLogin from "./pages/PatientLogin";
+import DoctorLogin from "./pages/DoctorLogin";
+
+const API = "http://127.0.0.1:8000";
+
+const languages = [
+  ["English", "English"],
+  ["Hindi", "à¤¹à¤¿à¤¨à¥à¤¦à¥€"],
+  ["Marathi", "à¤®à¤°à¤¾à¤ à¥€"],
+  ["Tamil", "à®¤à®®à®¿à®´à¯"],
+  ["Telugu", "à°¤à±†à°²à±à°—à±"],
+  ["Bengali", "à¦¬à¦¾à¦‚à¦²à¦¾"],
+];
+
+function App() {
+  const [screen, setScreen] = useState("language");
+
+  const [language, setLanguage] = useState("");
+  const [sessionId, setSessionId] = useState("");
+
+  const [patientUser, setPatientUser] = useState(null);
+  const [doctorUser, setDoctorUser] = useState(null);
+
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [sex, setSex] = useState("");
+
+  const [complaint, setComplaint] = useState("");
+  const [question, setQuestion] = useState("");
+  const [field, setField] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [answers, setAnswers] = useState({});
+
+  const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [completed, setCompleted] = useState(false);
+
+const [doctorCases, setDoctorCases] = useState([]);
+const [loadingDoctorCases, setLoadingDoctorCases] = useState(false);
+const [selectedCase, setSelectedCase] = useState(null);
+
+const [redFlagResult, setRedFlagResult] = useState(null);
+const [checkingRedFlags, setCheckingRedFlags] = useState(false);
+
+  function speechCode() {
+    const codes = {
+      English: "en-IN",
+      Hindi: "hi-IN",
+      Marathi: "mr-IN",
+      Tamil: "ta-IN",
+      Telugu: "te-IN",
+      Bengali: "bn-IN",
+    };
+
+    return codes[language] || "en-IN";
+  }
+
+  function speak(text) {
+    if (!text || !window.speechSynthesis) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const message = new SpeechSynthesisUtterance(text);
+
+    message.lang = speechCode();
+    message.rate = 0.85;
+    message.pitch = 1;
+    message.volume = 1;
+
+    message.onstart = () => {
+      setSpeaking(true);
+    };
+
+    message.onend = () => {
+      setSpeaking(false);
+    };
+
+    message.onerror = () => {
+      setSpeaking(false);
+    };
+
+    window.speechSynthesis.speak(message);
+  }
+
+  useEffect(() => {
+    if (screen !== "interview" || completed) {
+      return;
+    }
+
+    if (question) {
+      speak(question);
+    } else {
+      speak(
+        "What is the main problem or symptom you are experiencing today?"
+      );
+    }
+  }, [screen, question, completed]);
+
+  useEffect(() => {
+    if (screen !== "interview" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+    }
+  }, [screen]);
+
+  async function translateQuestion(text) {
+    if (!text || language === "English") {
+      return text;
+    }
+
+    try {
+      const response = await fetch(
+        `${API}/api/v1/translation/translate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text,
+            target_language: language,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Translation request failed");
+      }
+
+      const data = await response.json();
+
+      return data.translated || text;
+    } catch (error) {
+      console.error("Translation error:", error);
+
+      // If translation fails, keep the original clinical question.
+      return text;
+    }
+  }
+  async function createSession() {
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API}/api/v1/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          language,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Session creation failed");
+      }
+
+      const data = await response.json();
+
+      setSessionId(data.session_id);
+      setScreen("patient");
+    } catch (error) {
+      console.error(error);
+      alert("Could not connect to the MediKiosk backend.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+async function startInterview() {
+  if (!name.trim()) {
+    alert("Please enter your name.");
+    return;
+  }
+
+  if (!age) {
+    alert("Please enter your age.");
+    return;
+  }
+
+  if (!sex) {
+    alert("Please select your sex.");
+    return;
+  }
+
+  if (!sessionId) {
+    alert("Session is missing. Please start a new patient session.");
+    return;
+  }
+
+  try {
+    setLoading(true);
+
+    const response = await fetch(
+      `${API}/api/v1/sessions/${sessionId}/patient`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          age: Number(age),
+          sex: sex,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Patient information save failed");
+    }
+
+    const data = await response.json();
+
+    console.log("Patient information saved:", data);
+
+    setCompleted(false);
+    setQuestion("");
+    setField("");
+    setAnswer("");
+    setAnswers({});
+    setRedFlagResult(null);
+
+    setScreen("interview");
+  } catch (error) {
+    console.error("Patient information error:", error);
+
+    alert(
+      "Could not save patient information. Please try again."
+    );
+  } finally {
+    setLoading(false);
+  }
+}
+
+  async function checkRedFlags() {
+    if (!sessionId) {
+      return;
+    }
+
+    try {
+      setCheckingRedFlags(true);
+
+      const response = await fetch(
+        `${API}/api/v1/sessions/${sessionId}/red-flags`
+      );
+
+      if (!response.ok) {
+        throw new Error("Red-flag check failed");
+      }
+
+      const data = await response.json();
+
+      console.log("Red-flag assessment:", data);
+
+      setRedFlagResult(data);
+    } catch (error) {
+      console.error(error);
+
+      setRedFlagResult({
+        has_red_flags: false,
+        urgency: "unknown",
+        message: "Urgency assessment could not be completed.",
+        flags: [],
+      });
+    } finally {
+      setCheckingRedFlags(false);
+    }
+  }
+
+  async function nextQuestion(newAnswers) {
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        `${API}/api/v1/interview/next-question`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            complaint,
+            answers: newAnswers,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Question request failed");
+      }
+
+      const data = await response.json();
+
+      console.log("Adaptive engine:", data);
+
+      if (data.completed === true) {
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+
+  setSpeaking(false);
+  setQuestion("");
+  setField("");
+  setAnswer("");
+
+  try {
+    const completeResponse = await fetch(
+      `${API}/api/v1/sessions/${sessionId}/complete`,
+      {
+        method: "POST",
+      }
+    );
+
+    if (!completeResponse.ok) {
+      throw new Error("Session completion failed");
+    }
+
+    const completedSession = await completeResponse.json();
+
+    console.log("Completed MediKiosk session:", completedSession);
+
+    setCompleted(true);
+
+    await checkRedFlags();
+  } catch (error) {
+    console.error("Session completion error:", error);
+    alert("The clinical session could not be completed.");
+  }
+
+  return;
+}
+
+      setCompleted(false);
+
+      const originalQuestion = data.question || "";
+      const translatedQuestion = await translateQuestion(originalQuestion);
+
+      setQuestion(translatedQuestion);
+      setField(data.field || "");
+      setAnswer("");
+    } catch (error) {
+      console.error(error);
+      alert("Could not get the next clinical question.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitComplaint() {
+    if (!complaint.trim()) {
+      alert("Please enter your main symptom or problem.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        `${API}/api/v1/sessions/${sessionId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            chief_complaint: complaint,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Complaint save failed");
+      }
+
+      const emptyAnswers = {};
+
+      setAnswers(emptyAnswers);
+
+      await nextQuestion(emptyAnswers);
+    } catch (error) {
+      console.error(error);
+      alert("Could not save the complaint.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitAnswer() {
+    if (!answer.trim()) {
+      alert("Please provide an answer.");
+      return;
+    }
+
+    const newAnswers = {
+      ...answers,
+      [field]: answer,
+    };
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        `${API}/api/v1/sessions/${sessionId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            field,
+            answer,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Answer save failed");
+      }
+
+      setAnswers(newAnswers);
+
+      await nextQuestion(newAnswers);
+    } catch (error) {
+      console.error(error);
+      alert("Could not save the answer.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function voiceInput() {
+    const Recognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!Recognition) {
+      alert("Please use Google Chrome for voice input.");
+      return;
+    }
+
+    const recognition = new Recognition();
+
+    recognition.lang = speechCode();
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      setListening(true);
+    };
+
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+
+      if (!complaint.trim()) {
+        setComplaint(text);
+      } else {
+        setAnswer(text);
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Voice error:", event.error);
+      setListening(false);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+    };
+
+    recognition.start();
+  }
+
+  function formatFieldName(key) {
+    return key
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  function startNewPatient() {
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    setScreen("language");
+
+    setLanguage("");
+    setSessionId("");
+
+    setPatientUser(null);
+    setDoctorUser(null);
+
+    setName("");
+    setAge("");
+    setSex("");
+
+    setComplaint("");
+    setQuestion("");
+    setField("");
+    setAnswer("");
+    setAnswers({});
+
+    setLoading(false);
+    setListening(false);
+    setSpeaking(false);
+    setCompleted(false);
+
+    setRedFlagResult(null);
+    setCheckingRedFlags(false);
+  }
+
+  function handlePatientLogin(user) {
+    setPatientUser(user);
+    setName(user.name || "");
+    setScreen("patientPortal");
+  }
+
+  async function handleDoctorLogin(user) {
+  setDoctorUser(user);
+  setScreen("doctorDashboard");
+
+  try {
+    setLoadingDoctorCases(true);
+
+    const response = await fetch(
+      `${API}/api/v1/sessions/doctor/queue`
+    );
+
+    if (!response.ok) {
+      throw new Error("Could not load doctor queue");
+    }
+
+    const data = await response.json();
+
+    console.log("Doctor queue:", data);
+
+    setDoctorCases(data.cases || []);
+  } catch (error) {
+    console.error("Doctor queue error:", error);
+
+    setDoctorCases([]);
+
+    alert("Could not load the doctor patient queue.");
+  } finally {
+    setLoadingDoctorCases(false);
+  }
+}
+
+  async function openDoctorCase(patientCase) {
+    const caseInReview = {
+      ...patientCase,
+      status:
+        patientCase.status === "waiting"
+          ? "in_review"
+          : patientCase.status,
+    };
+
+    setSelectedCase(caseInReview);
+
+    setDoctorCases((currentCases) =>
+      currentCases.map((currentCase) =>
+        currentCase.session_id === caseInReview.session_id
+          ? caseInReview
+          : currentCase
+      )
+    );
+
+    setRedFlagResult(null);
+    setScreen("doctorCaseReview");
+
+    try {
+      const response = await fetch(
+        `${API}/api/v1/sessions/${caseInReview.session_id}/red-flags`
+      );
+
+      if (!response.ok) {
+        throw new Error("Red-flag check failed");
+      }
+
+      const data = await response.json();
+      setRedFlagResult(data);
+    } catch (error) {
+      console.error("Doctor case red-flag error:", error);
+
+      setRedFlagResult({
+        has_red_flags: false,
+        urgency: "unknown",
+        message: "Urgency assessment could not be loaded for this case.",
+        flags: [],
+      });
+    }
+  }
+
+  function markCaseAsReviewed() {
+    if (!selectedCase) {
+      return;
+    }
+
+    const reviewedCase = {
+      ...selectedCase,
+      status: "reviewed",
+    };
+
+    setSelectedCase(reviewedCase);
+
+    setDoctorCases((currentCases) =>
+      currentCases.map((patientCase) =>
+        patientCase.session_id === reviewedCase.session_id
+          ? reviewedCase
+          : patientCase
+      )
+    );
+
+    setScreen("doctorDashboard");
+  }
+
+  function logout() {
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    setPatientUser(null);
+    setDoctorUser(null);
+
+    setScreen("language");
+  }
+
+  /* =========================
+     LANGUAGE SCREEN
+  ========================= */
+
+  if (screen === "language") {
+    return (
+      <div className="kiosk">
+        <div className="language-card">
+          <div className="logo">M</div>
+
+          <p className="step-label">WELCOME TO MEDIKIOSK</p>
+
+          <h1>Select your language</h1>
+
+          <p>
+            Choose the language you are most comfortable speaking.
+          </p>
+
+          <div className="language-grid">
+            {languages.map(([code, native]) => (
+              <button
+                key={code}
+                onClick={() => {
+                  setLanguage(code);
+                  setScreen("welcome");
+                }}
+              >
+                {native}
+              </button>
+            ))}
+          </div>
+
+          <p className="privacy">
+            ðŸŒ Your selected language will be used throughout the
+            clinical intake.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     WELCOME / ROLE SELECTION
+  ========================= */
+
+  if (screen === "welcome") {
+    return (
+      <div className="kiosk">
+        <div className="welcome-card">
+          <div className="logo">M</div>
+
+          <p className="step-label">
+            LANGUAGE: {language.toUpperCase()}
+          </p>
+
+          <h1>Welcome to MediKiosk</h1>
+
+          <p className="tagline">
+            AI-Powered Clinical Intake
+          </p>
+
+          <p className="description">
+            A smart clinical intake platform that collects structured
+            patient history and helps doctors review cases efficiently.
+          </p>
+
+          <h2 style={{ marginTop: "28px" }}>
+            Who are you?
+          </h2>
+
+          <button
+            className="primary-button full-width"
+            onClick={() => setScreen("patientLogin")}
+          >
+            ðŸ‘¤ Patient Portal â†’
+          </button>
+
+          <button
+            className="secondary-button full-width"
+            style={{ marginTop: "12px" }}
+            onClick={() => setScreen("doctorLogin")}
+          >
+            ðŸ©º Doctor Portal â†’
+          </button>
+
+          <div className="accessibility">
+            <span>ðŸŽ¤ Voice enabled</span>
+            <span>ðŸ”Š Questions read aloud</span>
+            <span>ðŸ‘† Touch enabled</span>
+            <span>ðŸ”’ Secure</span>
+          </div>
+
+          <button
+            className="back-button"
+            onClick={() => setScreen("language")}
+          >
+            â† Change Language
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     PATIENT LOGIN
+  ========================= */
+
+  if (screen === "patientLogin") {
+    return (
+      <PatientLogin
+        onLogin={handlePatientLogin}
+        onBack={() => setScreen("welcome")}
+      />
+    );
+  }
+
+  /* =========================
+     DOCTOR LOGIN
+  ========================= */
+
+  if (screen === "doctorLogin") {
+    return (
+      <DoctorLogin
+        onLogin={handleDoctorLogin}
+        onBack={() => setScreen("welcome")}
+      />
+    );
+  }
+
+  /* =========================
+     PATIENT PORTAL
+  ========================= */
+
+  if (screen === "patientPortal") {
+    return (
+      <div className="kiosk">
+        <div className="welcome-card">
+          <div className="logo">M</div>
+
+          <p className="step-label">PATIENT PORTAL</p>
+
+          <h1>
+            Welcome, {patientUser?.name || "Patient"}
+          </h1>
+
+          <p className="description">
+            Your MediKiosk patient portal is ready.
+          </p>
+
+          <div className="summary-section">
+            <h2>Patient Identity</h2>
+
+            <div className="summary-grid">
+              <div>
+                <span>Patient ID</span>
+                <strong>
+                  {patientUser?.patientId || "Demo"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Language</span>
+                <strong>{language}</strong>
+              </div>
+
+              <div>
+                <span>Status</span>
+                <strong>Verified</strong>
+              </div>
+            </div>
+          </div>
+
+          <p className="doctor-note">
+            Your identity is linked to this prototype session.
+            In the production version, this layer can be connected
+            to ABHA/ABDM-compatible identity and consent workflows.
+          </p>
+
+          <button
+            className="primary-button full-width"
+            onClick={() => setScreen("consent")}
+          >
+            Start Clinical Intake â†’
+          </button>
+
+          <button
+            className="back-button"
+            onClick={logout}
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     CONSENT
+  ========================= */
+
+  if (screen === "consent") {
+    return (
+      <div className="kiosk">
+        <div className="consent-card">
+          <div className="logo small">M</div>
+
+          <p className="step-label">CONSENT</p>
+
+          <h1>Before we begin</h1>
+
+          <div className="consent-box">
+            <h2>Your information</h2>
+
+            <p>
+              MediKiosk will ask questions about your current symptoms,
+              medical history, medicines and allergies.
+            </p>
+
+            <p>
+              Your answers will be organized into a structured
+              clinical history to help your healthcare professional.
+            </p>
+
+            <p>
+              You can stop the process at any time.
+            </p>
+          </div>
+
+          <div className="consent-actions">
+            <button
+              className="secondary-button"
+              onClick={() => setScreen("patientPortal")}
+            >
+              â† Back
+            </button>
+
+            <button
+              className="primary-button"
+              onClick={createSession}
+              disabled={loading}
+            >
+              {loading
+                ? "Creating Session..."
+                : "I Understand & Continue â†’"}
+            </button>
+          </div>
+
+          <p className="privacy">
+            ðŸ”’ Your information is collected with your consent.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     PATIENT INFORMATION
+  ========================= */
+
+  if (screen === "patient") {
+    return (
+      <div className="kiosk">
+        <div className="patient-card">
+          <div className="logo small">M</div>
+
+          <p className="step-label">STEP 2 OF 4</p>
+
+          <h1>Patient Information</h1>
+
+          <p>
+            Please provide some basic information before we begin
+            your clinical interview.
+          </p>
+
+          <div className="form-group">
+            <label>Full Name</label>
+
+            <input
+              type="text"
+              placeholder="Enter your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Age</label>
+
+              <input
+                type="number"
+                min="0"
+                max="150"
+                placeholder="Age"
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Sex</label>
+
+              <select
+                value={sex}
+                onChange={(e) => setSex(e.target.value)}
+              >
+                <option value="" disabled>
+                  Select
+                </option>
+
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+                <option value="Prefer not to say">
+                  Prefer not to say
+                </option>
+              </select>
+            </div>
+          </div>
+
+          {sessionId && (
+            <p className="session-info">
+              âœ“ Session created successfully
+            </p>
+          )}
+
+          <button
+            className="primary-button full-width"
+            onClick={startInterview}
+          >
+            Continue to Clinical Interview â†’
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     INTERVIEW
+  ========================= */
+
+  if (screen === "interview") {
+    return (
+      <div className="kiosk">
+        <div className="interview-card">
+          <p className="step-label">STEP 3 OF 4</p>
+
+          <div className="progress-container">
+            <div
+              className="progress-bar"
+              style={{
+                width: completed
+                  ? "100%"
+                  : question
+                  ? "55%"
+                  : "35%",
+              }}
+            />
+          </div>
+
+          <h1>Clinical Interview</h1>
+
+          {completed ? (
+            <div className="completion-screen">
+              <div className="completion-icon">âœ“</div>
+
+              <h2>Clinical Interview Complete</h2>
+
+              <p>
+                Thank you. Your responses have been recorded
+                successfully.
+              </p>
+
+              {checkingRedFlags ? (
+                <p className="completion-note">
+                  Checking responses for urgent clinical warning
+                  patterns...
+                </p>
+              ) : (
+                <p className="completion-note">
+                  Your information has been assessed for predefined
+                  urgent warning patterns.
+                </p>
+              )}
+
+              <button
+                className="primary-button full-width"
+                onClick={() => setScreen("doctor")}
+                disabled={checkingRedFlags}
+              >
+                {checkingRedFlags
+                  ? "Completing Assessment..."
+                  : "Continue to Doctor Review â†’"}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p className="question">
+                {question ||
+                  "What is the main problem or symptom you are experiencing today?"}
+              </p>
+
+              {speaking && (
+                <div className="speaking-indicator">
+                  ðŸ”Š Reading question aloud...
+                </div>
+              )}
+
+              <button
+                className={
+                  listening
+                    ? "voice-button listening"
+                    : "voice-button"
+                }
+                onClick={voiceInput}
+              >
+                {listening ? "ðŸ”´" : "ðŸŽ¤"}
+              </button>
+
+              <p className="voice-hint">
+                {listening
+                  ? "Listening... speak naturally"
+                  : "Tap the microphone and speak naturally"}
+              </p>
+
+              <div className="divider">
+                <span>{question ? "YOUR ANSWER" : "OR"}</span>
+              </div>
+
+              <input
+                className="complaint-input"
+                type="text"
+                placeholder={
+                  question
+                    ? "Type your answer"
+                    : "Type your main complaint"
+                }
+                value={question ? answer : complaint}
+                onChange={(e) => {
+                  if (question) {
+                    setAnswer(e.target.value);
+                  } else {
+                    setComplaint(e.target.value);
+                  }
+                }}
+              />
+
+              <button
+                className="primary-button full-width"
+                onClick={
+                  question
+                    ? submitAnswer
+                    : submitComplaint
+                }
+                disabled={loading}
+              >
+                {loading ? "Please wait..." : "Continue â†’"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     DOCTOR DASHBOARD
+  ========================= */
+
+  if (screen === "doctorDashboard") {
+    return (
+      <div className="kiosk">
+        <div className="doctor-card">
+          <div className="doctor-header">
+            <div>
+              <p className="step-label">DOCTOR PORTAL</p>
+
+              <h1>
+                Welcome, {doctorUser?.name || "Doctor"}
+              </h1>
+
+              <p className="doctor-subtitle">
+                MediKiosk clinical dashboard
+              </p>
+            </div>
+
+            <div className="review-status">
+              âœ“ Authorized
+            </div>
+          </div>
+
+<div className="summary-section">
+  <h2>Patient Queue</h2>
+
+  {loadingDoctorCases ? (
+    <div className="summary-box">
+      Loading patient cases...
+    </div>
+  ) : doctorCases.length === 0 ? (
+    <div className="summary-box">
+      No completed patient cases are currently waiting for review.
+    </div>
+  ) : (
+    <div className="doctor-queue">
+      {doctorCases.map((patientCase) => (
+        <div
+          className="doctor-patient-card"
+          key={patientCase.session_id}
+        >
+          {/* Patient information */}
+          <div className="patient-card-info">
+
+            <div className="patient-card-header">
+              <div>
+                <p className="patient-label">PATIENT</p>
+
+                <h3>
+                  {patientCase.patient?.name || "Patient"}
+                </h3>
+              </div>
+
+              <span className="patient-status">
+                {patientCase.status
+                  ?.replaceAll("_", " ")
+                  .toUpperCase()}
+              </span>
+            </div>
+
+            <div className="patient-details">
+              <div className="patient-detail">
+                <span>Age</span>
+                <strong>
+                  {patientCase.patient?.age ?? "Not provided"}
+                </strong>
+              </div>
+
+              <div className="patient-detail">
+                <span>Sex</span>
+                <strong>
+                  {patientCase.patient?.sex || "Not provided"}
+                </strong>
+              </div>
+
+              <div className="patient-detail complaint">
+                <span>Chief Complaint</span>
+                <strong>
+                  {patientCase.chief_complaint || "Not provided"}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Open case button */}
+          <div className="patient-card-action">
+            <button
+              className="primary-button"
+              onClick={() => openDoctorCase(patientCase)}
+            >
+              Open Case â†’
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
+          <div className="summary-section">
+            <h2>Clinical Workflow</h2>
+
+<div className="summary-grid">
+  <div>
+    <span>Waiting</span>
+    <strong>
+      {
+        doctorCases.filter(
+          (patientCase) =>
+            patientCase.status === "waiting"
+        ).length
+      }
+    </strong>
+  </div>
+
+  <div>
+    <span>In Review</span>
+    <strong>
+      {
+        doctorCases.filter(
+          (patientCase) =>
+            patientCase.status === "in_review"
+        ).length
+      }
+    </strong>
+  </div>
+
+  <div>
+    <span>Reviewed</span>
+    <strong>
+      {
+        doctorCases.filter(
+          (patientCase) =>
+            patientCase.status === "reviewed"
+        ).length
+      }
+    </strong>
+  </div>
+</div>
+          </div>
+
+          <p className="doctor-note">
+            Completed patient cases are shown here for structured
+            clinical review. Final diagnosis and treatment decisions
+            must be made by a qualified healthcare professional.
+          </p>
+
+          <button
+            className="secondary-button"
+            onClick={logout}
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     DOCTOR CASE REVIEW
+  ========================= */
+
+  if (screen === "doctorCaseReview") {
+    if (!selectedCase) {
+      return (
+        <div className="kiosk">
+          <div className="doctor-card">
+            <h1>No patient case selected</h1>
+
+            <p className="doctor-subtitle">
+              Please return to the doctor dashboard and open a patient case.
+            </p>
+
+            <button
+              className="primary-button full-width"
+              onClick={() => setScreen("doctorDashboard")}
+            >
+              â† Back to Patient Queue
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const patient = selectedCase.patient || {};
+    const caseAnswers = selectedCase.answers || {};
+    const caseStatus = selectedCase.status || "waiting";
+
+    const caseRedFlagResult =
+      selectedCase.session_id === sessionId
+        ? redFlagResult
+        : null;
+
+    return (
+      <div className="kiosk">
+        <div className="doctor-card">
+          <div className="doctor-header">
+            <div>
+              <p className="step-label">STEP 4 OF 4</p>
+
+              <h1>Doctor Clinical Review</h1>
+
+              <p className="doctor-subtitle">
+                Review the structured clinical history collected by MediKiosk.
+              </p>
+            </div>
+
+            <div className="review-status">
+              {caseStatus === "reviewed"
+                ? "âœ“ Reviewed"
+                : caseStatus === "in_review"
+                ? "â— In Review"
+                : "â— Waiting"}
+            </div>
+          </div>
+
+          <div className="summary-section">
+            <h2>Patient Summary</h2>
+
+            <div className="summary-grid">
+              <div>
+                <span>Name</span>
+                <strong>{patient.name || "Not provided"}</strong>
+              </div>
+
+              <div>
+                <span>Age</span>
+                <strong>{patient.age ?? "Not provided"}</strong>
+              </div>
+
+              <div>
+                <span>Sex</span>
+                <strong>{patient.sex || "Not provided"}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="summary-section">
+            <h2>Chief Complaint</h2>
+
+            <div className="summary-box">
+              {selectedCase.chief_complaint || "No complaint recorded."}
+            </div>
+          </div>
+
+          <div className="summary-section">
+            <h2>Structured Clinical History</h2>
+
+            {Object.keys(caseAnswers).length === 0 ? (
+              <div className="summary-box">
+                No additional history was recorded.
+              </div>
+            ) : (
+              <div className="history-list">
+                {Object.entries(caseAnswers).map(([key, value]) => (
+                  <div className="history-item" key={key}>
+                    <span>{formatFieldName(key)}</span>
+                    <strong>{String(value)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="summary-section">
+            <h2>Safety Screening</h2>
+
+            {caseRedFlagResult ? (
+              <div
+                className={
+                  caseRedFlagResult.has_red_flags
+                    ? "urgency-section urgent"
+                    : "urgency-section routine"
+                }
+              >
+                <div className="urgency-header">
+                  <div className="urgency-icon">
+                    {caseRedFlagResult.has_red_flags ? "âš ï¸" : "âœ“"}
+                  </div>
+
+                  <div>
+                    <h2>
+                      {caseRedFlagResult.has_red_flags
+                        ? "Urgent Warning Pattern Detected"
+                        : "No Urgent Warning Pattern Detected"}
+                    </h2>
+
+                    <p>
+                      {caseRedFlagResult.urgency
+                        ? `Assessment: ${caseRedFlagResult.urgency}`
+                        : "Safety screening completed"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="urgency-message">
+                  {caseRedFlagResult.message ||
+                    "Urgency assessment is not available."}
+                </div>
+
+                {caseRedFlagResult.flags?.length > 0 && (
+                  <div className="flag-list">
+                    <strong>Detected warning patterns:</strong>
+
+                    {caseRedFlagResult.flags.map((flag, index) => (
+                      <div
+                        className="flag-item"
+                        key={`${flag.type || "flag"}-${index}`}
+                      >
+                        <strong>{flag.type || "Warning"}</strong>
+
+                        {flag.severity && (
+                          <span> â€” Severity: {flag.severity}</span>
+                        )}
+
+                        {flag.message && (
+                          <div>{flag.message}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="summary-box">
+                Safety screening information is not loaded for this case.
+              </div>
+            )}
+          </div>
+
+          <div className="summary-section">
+            <h2>Case Information</h2>
+
+            <div className="summary-grid">
+              <div>
+                <span>Status</span>
+                <strong>
+                  {caseStatus.replaceAll("_", " ").toUpperCase()}
+                </strong>
+              </div>
+
+              <div>
+                <span>Started</span>
+                <strong>
+                  {selectedCase.started_at
+                    ? new Date(selectedCase.started_at).toLocaleString()
+                    : "Not available"}
+                </strong>
+              </div>
+
+              <div>
+                <span>Completed</span>
+                <strong>
+                  {selectedCase.completed_at
+                    ? new Date(selectedCase.completed_at).toLocaleString()
+                    : "Not available"}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="completion-banner">
+            âš•ï¸ This is a clinical decision-support prototype.
+            The final diagnosis and treatment decision must be made
+            by a qualified healthcare professional.
+          </div>
+
+          <div className="consent-actions">
+            <button
+              className="secondary-button"
+              onClick={() => setScreen("doctorDashboard")}
+            >
+              â† Back to Queue
+            </button>
+
+            <button
+              className="primary-button"
+              onClick={markCaseAsReviewed}
+              disabled={caseStatus === "reviewed"}
+            >
+              {caseStatus === "reviewed"
+                ? "âœ“ Case Reviewed"
+                : "Mark as Reviewed"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     DOCTOR CLINICAL REVIEW
+  ========================= */
+
+  if (screen === "doctor") {
+    return (
+      <div className="kiosk">
+        <div className="doctor-card">
+          <div className="doctor-header">
+            <div>
+              <p className="step-label">STEP 4 OF 4</p>
+
+              <h1>Doctor Clinical Review</h1>
+
+              <p className="doctor-subtitle">
+                Structured clinical history generated from the
+                patient's responses.
+              </p>
+            </div>
+
+            <div className="review-status">
+              âœ“ Complete
+            </div>
+          </div>
+
+          {/* URGENCY ASSESSMENT */}
+
+          <div
+            className={
+              redFlagResult?.has_red_flags
+                ? "urgency-section urgent"
+                : "urgency-section routine"
+            }
+          >
+            <div className="urgency-header">
+              <div className="urgency-icon">
+                {redFlagResult?.has_red_flags ? "âš ï¸" : "âœ“"}
+              </div>
+
+              <div>
+                <h2>
+                  {redFlagResult?.has_red_flags
+                    ? "Urgent Warning Pattern Detected"
+                    : "No Urgent Warning Pattern Detected"}
+                </h2>
+
+                <p>
+                  {redFlagResult?.urgency
+                    ? `Assessment: ${redFlagResult.urgency}`
+                    : "Safety screening completed"}
+                </p>
+              </div>
+            </div>
+
+            <div className="urgency-message">
+              {redFlagResult?.message ||
+                "Urgency assessment is not available."}
+            </div>
+
+{redFlagResult?.flags?.length > 0 && (
+  <div className="flag-list">
+    <strong>Detected warning patterns:</strong>
+
+    {redFlagResult.flags.map((flag, index) => (
+      <div
+        className="flag-item"
+        key={`${flag.type || "flag"}-${index}`}
+      >
+        <strong>
+          {flag.type || "Warning"}
+        </strong>
+
+        {flag.severity && (
+          <span>
+            {" "}
+            â€” Severity: {flag.severity}
+          </span>
+        )}
+
+        {flag.message && (
+          <div>
+            {flag.message}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+)}
+          </div>
+
+          {/* PATIENT SUMMARY */}
+
+          <div className="summary-section">
+            <h2>Patient Summary</h2>
+
+            <div className="summary-grid">
+              <div>
+                <span>Name</span>
+                <strong>{name || "Not provided"}</strong>
+              </div>
+
+              <div>
+                <span>Age</span>
+                <strong>{age || "Not provided"}</strong>
+              </div>
+
+              <div>
+                <span>Sex</span>
+                <strong>{sex || "Not provided"}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* CHIEF COMPLAINT */}
+
+          <div className="summary-section">
+            <h2>Chief Complaint</h2>
+
+            <div className="summary-box">
+              {complaint || "No complaint recorded."}
+            </div>
+          </div>
+
+          {/* HISTORY */}
+
+          <div className="summary-section">
+            <h2>Structured Clinical History</h2>
+
+            {Object.keys(answers).length === 0 ? (
+              <div className="summary-box">
+                No additional history was recorded.
+              </div>
+            ) : (
+              <div className="history-list">
+                {Object.entries(answers).map(
+                  ([key, value]) => (
+                    <div
+                      className="history-item"
+                      key={key}
+                    >
+                      <span>
+                        {formatFieldName(key)}
+                      </span>
+
+                      <strong>
+                        {String(value)}
+                      </strong>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* DISCLAIMER */}
+
+          <div className="completion-banner">
+            âš•ï¸ This is a clinical decision-support prototype.
+            The final diagnosis and treatment decision must be made
+            by a qualified healthcare professional.
+          </div>
+
+          <button
+            className="primary-button full-width"
+            onClick={startNewPatient}
+          >
+            Start New Patient â†’
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+export default App;
+

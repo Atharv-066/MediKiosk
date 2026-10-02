@@ -1,0 +1,9 @@
+﻿fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+openai
+pytesseract
+Pillow
+pdf2image
+python-multipart

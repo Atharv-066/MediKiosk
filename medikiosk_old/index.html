@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediKiosk | Clinical Intake</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#" onclick="goToScreen('welcome-screen');return false">
+    <span class="brand-mark">M</span>MediKiosk
+  </a>
+  <div class="header-actions">
+    <button class="text-button" onclick="toggleAccessibility()">A<span>a</span> Accessibility</button>
+    <button class="language-menu" onclick="cycleLanguage()" id="language-switch">English</button>
+  </div>
+</header>
+
+<main class="kiosk-container">
+  <section id="welcome-screen" class="screen active">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">PATIENT-FIRST DIGITAL INTAKE</p>
+        <h1>Start your care journey with confidence.</h1>
+        <p class="subtitle">Securely share your health concern, documents, and history before you meet the clinician.</p>
+        <div class="feature-row">
+          <span>✓ Speak or tap</span>
+          <span>✓ English / हिन्दी</span>
+          <span>✓ Your consent, your control</span>
+        </div>
+      </div>
+
+      <aside class="welcome-card">
+        <h2>Identify yourself</h2>
+        <p>Use your ABHA number, Aadhaar-linked mobile, or register as a new patient.</p>
+        <label for="patient-id">ABHA number or mobile</label>
+        <input id="patient-id" inputmode="numeric" placeholder="Enter your ID or mobile number">
+        <p id="identity-error" class="error"></p>
+        <button class="primary-button full-width" onclick="startIntake()">Continue securely</button>
+        <button class="secondary-button full-width" onclick="startGuestIntake()">Register as a new patient</button>
+      </aside>
+    </div>
+    <div class="privacy-strip">🔒 Your clinical information is captured only with your consent and is cleared from this kiosk after submission.</div>
+  </section>
+
+  <section id="consent-screen" class="screen">
+    <div class="progress"><span class="progress-active"></span><span></span><span></span><span></span></div>
+    <p class="eyebrow">STEP 1 OF 4 · CONSENT</p>
+    <h1>Your information, your choice.</h1>
+    <p class="subtitle">We need your permission to collect your health history, process documents you upload, and share the final summary with your hospital care team.</p>
+
+    <div class="consent-card">
+      <label class="checkbox-label"><input type="checkbox" id="consent-history">I consent to collect and structure my health history for this visit.</label>
+      <label class="checkbox-label"><input type="checkbox" id="consent-documents">I consent to process documents I choose to upload.</label>
+      <label class="checkbox-label"><input type="checkbox" id="consent-share">I consent to share the final summary with the hospital care team.</label>
+    </div>
+
+    <p id="consent-error" class="error"></p>
+    <div class="button-row">
+      <button class="secondary-button" onclick="goToScreen('welcome-screen')">Back</button>
+      <button class="primary-button" onclick="acceptConsent()">I agree and continue</button>
+    </div>
+  </section>
+
+  <section id="intake-screen" class="screen">
+    <div class="progress"><span class="progress-active"></span><span class="progress-active"></span><span></span><span></span></div>
+    <p class="eyebrow">STEP 2 OF 4 · HEALTH CONCERN</p>
+    <h1>What brings you in today?</h1>
+    <p class="subtitle">You can speak naturally or type your concern. We will ask only the follow-up questions needed for the clinician.</p>
+
+    <div class="input-mode">
+      <button id="voice-button" class="voice-button" onclick="toggleVoiceCapture()">🎙 Start speaking</button>
+      <span id="voice-status">Tap to use voice input</span>
+    </div>
+
+    <label for="concern-input">Describe your main concern</label>
+    <textarea id="concern-input" rows="5" placeholder="For example: I have had a headache and fever since yesterday."></textarea>
+
+    <div id="red-flag-alert" class="red-flag" hidden>
+      <strong>Urgent symptoms may need immediate attention.</strong><br>
+      Please tell a staff member now or use the emergency help button.
+    </div>
+
+    <p id="intake-error" class="error"></p>
+    <div class="button-row">
+      <button class="secondary-button" onclick="goToScreen('consent-screen')">Back</button>
+      <button class="primary-button" onclick="continueIntake()">Continue</button>
+    </div>
+  </section>
+
+  <section id="documents-screen" class="screen">
+    <div class="progress"><span class="progress-active"></span><span class="progress-active"></span><span class="progress-active"></span><span></span></div>
+    <p class="eyebrow">STEP 3 OF 4 · DOCUMENTS</p>
+    <h1>Add health documents</h1>
+    <p class="subtitle">Optional: upload a prescription, lab report, or discharge summary for clinician review.</p>
+
+    <label class="upload-area" for="medical-documents">
+      <span>📄</span>
+      <strong>Choose documents</strong>
+      <small>Photos, PDFs, prescriptions, lab reports, or discharge summaries</small>
+      <input id="medical-documents" type="file" accept="image/*,.pdf" multiple onchange="showDocuments()">
+    </label>
+
+    <ul id="document-list" class="document-list"></ul>
+
+    <div class="button-row">
+      <button class="secondary-button" onclick="goToScreen('intake-screen')">Back</button>
+      <button class="primary-button" onclick="createSummary()">Review my summary</button>
+    </div>
+  </section>
+
+  <section id="summary-screen" class="screen">
+    <div class="progress"><span class="progress-active"></span><span class="progress-active"></span><span class="progress-active"></span><span class="progress-active"></span></div>
+    <p class="eyebrow">STEP 4 OF 4 · REVIEW</p>
+    <h1>Review your care summary</h1>
+    <p class="subtitle">This is a draft for your clinician to review, edit, and confirm. It is not a diagnosis.</p>
+
+    <div class="summary-card">
+      <div class="summary-item"><span class="summary-label">Patient</span><span id="summary-patient">-</span></div>
+      <div class="summary-item"><span class="summary-label">Preferred language</span><span id="summary-language">-</span></div>
+      <div class="summary-item"><span class="summary-label">Chief complaint</span><span id="summary-concern">-</span></div>
+      <div class="summary-item"><span class="summary-label">Documents attached</span><span id="summary-documents">None</span></div>
+      <div class="summary-item"><span class="summary-label">Consent status</span><span class="status-good">Confirmed</span></div>
+    </div>
+
+    <div class="button-row">
+      <button class="secondary-button" onclick="goToScreen('intake-screen')">Edit</button>
+      <button class="primary-button" onclick="submitSummary()">Send to care team</button>
+    </div>
+  </section>
+
+  <section id="complete-screen" class="screen center-screen">
+    <div class="success-icon">✓</div>
+    <p class="eyebrow">INTAKE COMPLETE</p>
+    <h1>Your summary is ready.</h1>
+    <p class="subtitle">Your care team can now review your history and documents. Please wait for your name or token to be called.</p>
+    <div class="privacy-strip">This kiosk session has been cleared to protect your privacy.</div>
+    <button class="primary-button" onclick="newVisit()">Start a new visit</button>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
